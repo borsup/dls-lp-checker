@@ -1,0 +1,922 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#0f172a">
+<meta name="description" content="DLS / LP Cross-Check Tool — ASL Airlines Belgium">
+<title>DLS/LP Checker</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+
+<!-- PDF.js -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<!-- SheetJS -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+<style>
+  :root {
+    --bg:        #0f172a;
+    --surface:   #1e293b;
+    --surface2:  #263348;
+    --border:    #334155;
+    --accent:    #38bdf8;
+    --accent2:   #0ea5e9;
+    --text:      #f1f5f9;
+    --muted:     #94a3b8;
+    --ok:        #22c55e;
+    --ok-bg:     #052e16;
+    --ok-border: #15803d;
+    --warn:      #f59e0b;
+    --warn-bg:   #1c1005;
+    --err:       #f87171;
+    --err-bg:    #2d0a0a;
+    --err-border:#b91c1c;
+    --info-bg:   #0c1e36;
+    --info-border:#1d4ed8;
+    --radius:    10px;
+    --font: 'Segoe UI', system-ui, sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 14px;
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+
+  /* ── Header ── */
+  header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 0 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 56px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .logo svg { flex-shrink: 0; }
+  nav { display: flex; gap: 4px; }
+  nav button {
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    font-size: 13px;
+    padding: 6px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all .15s;
+  }
+  nav button:hover { background: var(--surface2); color: var(--text); }
+  nav button.active { background: var(--surface2); color: var(--accent); font-weight: 500; }
+
+  /* ── Pages ── */
+  .page { display: none; padding: 2rem 1.5rem; max-width: 1100px; margin: 0 auto; }
+  .page.visible { display: block; }
+
+  /* ── Upload zone ── */
+  .upload-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.25rem;
+    margin-bottom: 1.5rem;
+  }
+  @media (max-width: 600px) { .upload-grid { grid-template-columns: 1fr; } }
+
+  .drop-zone {
+    border: 1.5px dashed var(--border);
+    border-radius: var(--radius);
+    padding: 2rem 1.5rem;
+    text-align: center;
+    cursor: pointer;
+    transition: all .2s;
+    background: var(--surface);
+    position: relative;
+  }
+  .drop-zone:hover, .drop-zone.drag { border-color: var(--accent); background: var(--info-bg); }
+  .drop-zone.ready { border-color: var(--ok); border-style: solid; }
+  .drop-zone input[type="file"] {
+    position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
+  }
+  .drop-icon { font-size: 2rem; margin-bottom: .5rem; }
+  .drop-label { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 4px; }
+  .drop-sub { font-size: 12px; color: var(--muted); }
+  .drop-filename {
+    margin-top: 10px; font-size: 12px; color: var(--ok);
+    font-weight: 500; display: none;
+  }
+  .drop-zone.ready .drop-filename { display: block; }
+  .drop-zone.ready .drop-icon-inner { display: none; }
+
+  /* ── Run button ── */
+  #btn-run {
+    width: 100%;
+    padding: 13px;
+    background: var(--accent2);
+    color: #fff;
+    border: none;
+    border-radius: var(--radius);
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all .15s;
+    letter-spacing: .02em;
+  }
+  #btn-run:hover:not(:disabled) { background: var(--accent); }
+  #btn-run:disabled { opacity: .35; cursor: not-allowed; }
+
+  /* ── Summary cards ── */
+  .summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1rem;
+    margin: 1.5rem 0;
+  }
+  .stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem 1.25rem;
+  }
+  .stat-card .label { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .stat-card .value { font-size: 28px; font-weight: 700; }
+  .stat-card.ok  { border-color: var(--ok-border);  background: var(--ok-bg);  }
+  .stat-card.ok  .value { color: var(--ok); }
+  .stat-card.err { border-color: var(--err-border); background: var(--err-bg); }
+  .stat-card.err .value { color: var(--err); }
+  .stat-card.warn { border-color: #92400e; background: var(--warn-bg); }
+  .stat-card.warn .value { color: var(--warn); }
+
+  /* ── Filters ── */
+  .filter-bar {
+    display: flex; gap: 6px; flex-wrap: wrap;
+    align-items: center; margin-bottom: 1rem;
+  }
+  .filter-bar span { font-size: 12px; color: var(--muted); margin-right: 4px; }
+  .filter-btn {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 12px;
+    padding: 4px 14px;
+    border-radius: 99px;
+    cursor: pointer;
+    transition: all .15s;
+  }
+  .filter-btn:hover { border-color: var(--accent); color: var(--text); }
+  .filter-btn.active { background: var(--accent2); border-color: var(--accent2); color: #fff; font-weight: 600; }
+
+  /* ── Table ── */
+  .table-wrap { overflow-x: auto; border-radius: var(--radius); border: 1px solid var(--border); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  thead th {
+    background: var(--surface);
+    padding: 10px 14px;
+    text-align: left;
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--muted);
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  tbody tr { border-bottom: 1px solid var(--border); transition: background .1s; }
+  tbody tr:last-child { border-bottom: none; }
+  tbody tr:hover { background: var(--surface2); }
+  tbody tr.row-err { background: #1a0808; }
+  tbody tr.row-err:hover { background: #220e0e; }
+  tbody tr.row-warn { background: #130f02; }
+  tbody tr.row-warn:hover { background: #1a1404; }
+  tbody td { padding: 9px 14px; vertical-align: middle; }
+  .mono { font-family: 'Courier New', monospace; font-size: 12px; }
+  .pos-badge {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 2px 8px;
+    font-weight: 600;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  .badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 99px;
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .badge-ok   { background: var(--ok-bg);  color: var(--ok);  border: 1px solid var(--ok-border); }
+  .badge-err  { background: var(--err-bg); color: var(--err); border: 1px solid var(--err-border); }
+  .badge-warn { background: var(--warn-bg); color: var(--warn); border: 1px solid #92400e; }
+  .cell-err { color: var(--err); font-weight: 600; }
+  .cell-muted { color: var(--muted); font-style: italic; }
+  .delta-neg { color: var(--err); font-weight: 600; }
+  .delta-pos { color: var(--warn); font-weight: 600; }
+
+  /* ── Section headers in table ── */
+  .section-row td {
+    background: var(--surface);
+    color: var(--accent);
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    padding: 6px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  /* ── Empty / loading ── */
+  #placeholder {
+    text-align: center;
+    padding: 4rem 2rem;
+    color: var(--muted);
+  }
+  #placeholder svg { margin-bottom: 1rem; opacity: .3; }
+  .spinner {
+    width: 36px; height: 36px;
+    border: 3px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin .7s linear infinite;
+    margin: 2rem auto;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Toast ── */
+  #toast {
+    position: fixed; bottom: 1.5rem; left: 50%; transform: translateX(-50%);
+    background: var(--err-bg); border: 1px solid var(--err-border); color: var(--err);
+    padding: .75rem 1.5rem; border-radius: var(--radius);
+    font-size: 13px; font-weight: 500;
+    opacity: 0; pointer-events: none; transition: opacity .25s;
+    z-index: 999; max-width: 90vw; text-align: center;
+  }
+  #toast.show { opacity: 1; }
+
+  /* ── About page ── */
+  .about-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 2rem;
+    max-width: 560px;
+  }
+  .about-card h2 { font-size: 18px; margin-bottom: .5rem; color: var(--accent); }
+  .about-card p { color: var(--muted); margin-bottom: .75rem; line-height: 1.7; }
+  .about-card ul { color: var(--muted); padding-left: 1.25rem; line-height: 2; }
+  .about-dev {
+    margin-top: 1.5rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .about-dev strong { color: var(--text); }
+  .version-badge {
+    display: inline-block;
+    background: var(--info-bg);
+    border: 1px solid var(--info-border);
+    color: var(--accent);
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 10px;
+    border-radius: 99px;
+    margin-left: 6px;
+  }
+
+
+
+  /* ── Export button ── */
+  #btn-export {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-size: 13px;
+    padding: 6px 16px;
+    border-radius: 7px;
+    cursor: pointer;
+    margin-left: auto;
+    display: none;
+    transition: all .15s;
+  }
+  #btn-export:hover { border-color: var(--accent); color: var(--accent); }
+  .filter-export { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 1rem; }
+</style>
+</head>
+<body>
+
+<!-- App -->
+<header>
+  <div class="logo">
+    <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+      <rect width="28" height="28" rx="7" fill="#0ea5e9" opacity=".15"/>
+      <path d="M4 18 L14 8 L24 18" stroke="#38bdf8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M8 22 L20 22" stroke="#38bdf8" stroke-width="2" stroke-linecap="round"/>
+    </svg>
+    DLS/LP Checker
+  </div>
+  <nav>
+    <button class="active" onclick="showPage('check',this)">Check</button>
+    <button onclick="showPage('about',this)">About</button>
+  </nav>
+</header>
+
+<!-- CHECK PAGE -->
+<div class="page visible" id="page-check">
+
+  <div class="upload-grid">
+    <!-- DLS drop zone -->
+    <div class="drop-zone" id="zone-dls" ondragover="onDrag(event,this)" ondragleave="offDrag(this)" ondrop="onDrop(event,'dls',this)">
+      <input type="file" accept=".xls,.xlsx" onchange="onFile(event,'dls')">
+      <div class="drop-icon-inner">
+        <div class="drop-icon">📋</div>
+        <div class="drop-label">DLS — Departure Loading Sheet</div>
+        <div class="drop-sub">Drop or click · .xls / .xlsx</div>
+      </div>
+      <div class="drop-filename" id="fn-dls"></div>
+    </div>
+
+    <!-- LP drop zone -->
+    <div class="drop-zone" id="zone-lp" ondragover="onDrag(event,this)" ondragleave="offDrag(this)" ondrop="onDrop(event,'lp',this)">
+      <input type="file" accept=".pdf" onchange="onFile(event,'lp')">
+      <div class="drop-icon-inner">
+        <div class="drop-icon">📄</div>
+        <div class="drop-label">LP — Load Plan (Load Advice PDF)</div>
+        <div class="drop-sub">Drop or click · .pdf</div>
+      </div>
+      <div class="drop-filename" id="fn-lp"></div>
+    </div>
+  </div>
+
+  <div style="display:flex; gap:10px;">
+    <button id="btn-run" disabled onclick="runCheck()" style="flex:1;">▶ Run Cross-Check</button>
+    <button id="btn-reset" onclick="resetAll()" title="Clear files and results" style="background:var(--surface);border:1px solid var(--border);color:var(--muted);font-size:14px;padding:13px 20px;border-radius:var(--radius);cursor:pointer;transition:all .15s;white-space:nowrap;">↺ Reset</button>
+  </div>
+
+  <!-- Results -->
+  <div id="results" style="margin-top:2rem;"></div>
+</div>
+
+<!-- ABOUT PAGE -->
+<div class="page" id="page-about">
+  <div class="about-card">
+    <h2>DLS/LP Checker</h2>
+    <p>
+      This tool cross-checks the <strong>Departure Loading Sheet (DLS)</strong> against the
+      <strong>Load Plan PDF (LP)</strong> for cargo flights.
+    </p>
+    <p>It verifies three things:</p>
+    <ul>
+      <li>ULD number match &amp; its corresponding weight (per LP position)</li>
+      <li>ULDs listed in the DLS but absent from the LP</li>
+      <li>ULDs found in the LP but not present in the DLS</li>
+    </ul>
+    <p style="margin-top:.75rem; font-size:12px;">
+      All processing is done locally in your browser. No data is sent to any server.
+    </p>
+    <div class="about-dev">
+      <span style="font-size:1.5rem;">🇧🇪</span>
+      <div>
+        <div><strong>borsup</strong> — Developer</div>
+        <div>
+          Version <span class="version-badge">v1.0 · June 2026</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div id="toast"></div>
+
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+/* ──────────────────────────────
+   PASSWORD
+────────────────────────────── */
+
+/* ──────────────────────────────
+   NAVIGATION
+────────────────────────────── */
+function showPage(id, btn) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('visible'));
+  document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+  document.getElementById('page-' + id).classList.add('visible');
+  btn.classList.add('active');
+}
+
+/* ──────────────────────────────
+   FILE HANDLING
+────────────────────────────── */
+let dlsFile = null, lpFile = null;
+
+function onDrag(e, el) { e.preventDefault(); el.classList.add('drag'); }
+function offDrag(el) { el.classList.remove('drag'); }
+function onDrop(e, type, el) {
+  e.preventDefault(); offDrag(el);
+  const f = e.dataTransfer.files[0];
+  if (f) handleFile(f, type);
+}
+function onFile(e, type) {
+  const f = e.target.files[0];
+  if (f) handleFile(f, type);
+}
+
+function handleFile(f, type) {
+  if (type === 'dls') {
+    if (!f.name.match(/\.(xls|xlsx)$/i)) { showToast('DLS must be an .xls or .xlsx file'); return; }
+    dlsFile = f;
+    setZoneReady('zone-dls', 'fn-dls', f.name);
+  } else {
+    if (!f.name.match(/\.pdf$/i)) { showToast('LP must be a .pdf file'); return; }
+    lpFile = f;
+    setZoneReady('zone-lp', 'fn-lp', f.name);
+  }
+  document.getElementById('btn-run').disabled = !(dlsFile && lpFile);
+}
+
+function setZoneReady(zoneId, fnId, name) {
+  const z = document.getElementById(zoneId);
+  const fn = document.getElementById(fnId);
+  z.classList.add('ready');
+  fn.textContent = '✓ ' + name;
+}
+
+/* ──────────────────────────────
+   PARSE DLS  (.xls/.xlsx)
+   Source: "Pallet List" sheet
+   Cols: 2=ULD, 4=Gross weight
+────────────────────────────── */
+async function parseDLS(file) {
+  const buf = await file.arrayBuffer();
+  const wb = XLSX.read(buf, { type: 'array' });
+
+  // Detect format by sheet name
+  // Format A: has "Pallet List" sheet -> ULD col=2, Weight col=4, data from row 2
+  // Format B: has "DLS" sheet         -> ULD col=2, Weight col=1, data from row 8
+  const ULD_RE = /^[A-Z]{2,3}\d{4,8}[A-Z0-9]{0,3}$/;
+  const ulds = {};
+
+  const palletSheet = wb.SheetNames.find(s => s.toLowerCase().includes('pallet'));
+  const dlsSheet    = wb.SheetNames.find(s => s.toLowerCase() === 'dls');
+
+  if (palletSheet) {
+    // Format A: .xls DLS with "Pallet List" sheet — ULD=col2, Weight=col4
+    const raw = XLSX.utils.sheet_to_json(wb.Sheets[palletSheet], { header: 1, defval: '' });
+    for (let i = 2; i < raw.length; i++) {
+      const row = raw[i];
+      const uld = String(row[2] || '').trim();
+      const wt  = parseFloat(row[4]);
+      if (ULD_RE.test(uld) && !isNaN(wt) && wt > 0) ulds[uld] = wt;
+    }
+  } else if (dlsSheet) {
+    // Format B: .xlsx FBL with "DLS" sheet — ULD=col2, Weight=col1, skip non-ULD rows
+    const raw = XLSX.utils.sheet_to_json(wb.Sheets[dlsSheet], { header: 1, defval: '' });
+    for (let i = 0; i < raw.length; i++) {
+      const row = raw[i];
+      const uld = String(row[2] || '').trim();
+      const wt  = parseFloat(row[1]);
+      if (ULD_RE.test(uld) && !isNaN(wt) && wt > 0) ulds[uld] = wt;
+    }
+  } else {
+    // Fallback: try first sheet, scan all rows for ULD pattern in col 2, weight in col 1 or 4
+    const raw = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' });
+    for (let i = 0; i < raw.length; i++) {
+      const row = raw[i];
+      const uld = String(row[2] || '').trim();
+      if (!ULD_RE.test(uld)) continue;
+      const wt = parseFloat(row[4]) || parseFloat(row[1]);
+      if (!isNaN(wt) && wt > 0) ulds[uld] = wt;
+    }
+  }
+  return ulds;
+}
+
+/* ──────────────────────────────
+   PARSE LP  (PDF)
+   Extract all lines, then find
+   position blocks with ULD + weight
+────────────────────────────── */
+async function parseLP(file) {
+  const buf = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+
+  // Use real PDF word coordinates (xMin, xMax, yMin) from pdf.js.
+  // NOTE: in these PDFs, Y increases downward (origin at top of page).
+  // So a token that appears visually below another has a HIGHER yMin value.
+  //
+  // Two challenges handled here:
+  // 1. ULDs split across two lines ("PMC" on line N, "71460O3" on line N+1):
+  //    merged by finding a suffix token below the prefix within MAX_Y_GAP,
+  //    at the same X column, that together form a valid ULD string.
+  // 2. ULD rows and weight rows share the same column (X) but different Y:
+  //    matched by X-midpoint alignment with a tight tolerance.
+
+  const ULD_FULL  = /^[A-Z]{2,3}\d{4,8}[A-Z0-9]{0,3}$/;
+  const PREFIX_RE = /^[A-Z]{2,3}$/;
+  // Suffix: must have letters at end OR be 5+ digits (excludes pure weight numbers like 1445, 2230)
+  const SUFFIX_RE = /^\d{4,7}[A-Z]{1,2}\d{0,1}$|^\d{5,7}[A-Z0-9]{0,2}$/;
+  const NUM_RE    = /^\d{3,5}$/;
+  const MAX_Y_GAP = 25; // pt — max vertical gap between split ULD prefix and suffix
+  const X_TOL     = 8;  // pt — column alignment tolerance for prefix+suffix pairing
+  const COL_TOL   = 6;  // pt — column alignment tolerance for ULD+weight pairing
+
+  // Collect all word items with midpoint X and Y
+  let allItems = [];
+  for (let p = 1; p <= pdf.numPages; p++) {
+    const page = await pdf.getPage(p);
+    const content = await page.getTextContent();
+    for (const item of content.items) {
+      const str = item.str.trim();
+      if (!str) continue;
+      const xmin = item.transform[4];
+      const xmax = xmin + item.width;
+      const y    = item.transform[5]; // Y from pdf.js transform
+      allItems.push({ x: (xmin + xmax) / 2, xmin, y, str });
+    }
+  }
+
+  // Determine Y direction: in most PDFs pdf.js gives Y increasing upward (origin at bottom).
+  // But some PDFs (like these LPs) have Y increasing downward.
+  // Detect by checking where the page header sits relative to the footer.
+  // Simple heuristic: if the word "Flight:" has a LOWER Y than "Page 1 of", Y is upward.
+  // We'll normalize: after detection, sort so visual top-of-page items come first.
+  const flightItem = allItems.find(i => i.str === 'Flight:');
+  const pageItem   = allItems.find(i => i.str === 'Page');
+  let yIncDown = false; // default: Y increases upward (standard PDF)
+  if (flightItem && pageItem) {
+    // "Flight:" is always near the top; "Page" is always near the bottom
+    // If Flight: has LOWER Y than Page -> Y increases downward
+    yIncDown = flightItem.y < pageItem.y;
+  }
+  // Normalize: topY = visual top = min Y if yIncDown, max Y if yIncUp
+  const topSort = yIncDown
+    ? (a, b) => a.y - b.y   // ascending Y = top to bottom
+    : (a, b) => b.y - a.y;  // descending Y = top to bottom
+  allItems.sort(topSort);
+
+  // Helper: visual Y distance from a to b (positive = b is below a)
+  const dy = (a, b) => yIncDown ? b.y - a.y : a.y - b.y;
+
+  // ── Step 1: merge split ULD tokens ──
+  // For each prefix token (e.g. "PMC"), find a suffix token directly below
+  // at the same X that together form a valid ULD.
+  const consumed = new Set();
+  const mergedItems = [];
+
+  for (let i = 0; i < allItems.length; i++) {
+    if (consumed.has(i)) continue;
+    const item = allItems[i];
+    if (!PREFIX_RE.test(item.str)) continue;
+
+    let bestSuffix = null, bestJ = null;
+    for (let j = i + 1; j < allItems.length; j++) {
+      if (consumed.has(j)) continue;
+      const other = allItems[j];
+      const vertDist = dy(item, other);
+      if (vertDist < 0) continue;      // other is above (shouldn't happen with sorted list)
+      if (vertDist > MAX_Y_GAP) break; // too far down, stop
+      if (!SUFFIX_RE.test(other.str)) continue;
+      if (Math.abs(item.x - other.x) > X_TOL) continue;
+      const candidate = item.str + other.str;
+      if (!ULD_FULL.test(candidate)) continue;
+      if (!bestSuffix || vertDist < dy(item, bestSuffix)) {
+        bestSuffix = other; bestJ = j;
+      }
+    }
+
+    if (bestSuffix) {
+      consumed.add(i); consumed.add(bestJ);
+      mergedItems.push({ x: item.x, xmin: item.xmin, y: item.y, str: item.str + bestSuffix.str });
+    }
+  }
+
+  // Build final item list
+  const finalItems = [...mergedItems];
+  for (let i = 0; i < allItems.length; i++) {
+    if (!consumed.has(i)) finalItems.push(allItems[i]);
+  }
+
+  // ── Step 2: group into lines by Y (4pt snap) ──
+  const rawLines = {};
+  for (const item of finalItems) {
+    const bucket = Math.round(item.y / 4) * 4;
+    if (!rawLines[bucket]) rawLines[bucket] = [];
+    rawLines[bucket].push(item);
+  }
+
+  // Sort buckets top-to-bottom
+  const sortedBuckets = Object.keys(rawLines).map(Number)
+    .sort((a, b) => yIncDown ? a - b : b - a);
+
+  // Classify lines
+  const uldLines = [], numLines = [];
+  for (const b of sortedBuckets) {
+    const items = rawLines[b].sort((a, c) => a.x - c.x);
+    const ulds = items.filter(it => ULD_FULL.test(it.str));
+    const nums = items.filter(it => NUM_RE.test(it.str) && +it.str >= 100 && +it.str <= 9999);
+    if (ulds.length) uldLines.push({ b, ulds });
+    else if (nums.length) numLines.push({ b, nums });
+  }
+
+  // ── Step 3: pair each ULD line with its weight line ──
+  // The weight line is the first num-line that is BELOW the ULD line
+  // and has numbers X-aligned with the ULDs.
+  const result = {};
+  for (const { b: ub, ulds: uulds } of uldLines) {
+    if (uulds.every(u => u.xmin < 50)) continue; // skip DGR section (flush-left)
+    for (const { b: nb, nums: nnums } of numLines) {
+      // num line must be below uld line
+      const below = yIncDown ? nb > ub : nb < ub;
+      if (!below) continue;
+      const pairs = [];
+      for (const uld of uulds) {
+        for (const num of nnums) {
+          if (Math.abs(uld.x - num.x) <= COL_TOL) { pairs.push({ uld, num }); break; }
+        }
+      }
+      if (pairs.length >= Math.max(1, Math.floor(uulds.length / 2))) {
+        for (const { uld, num } of pairs) {
+          if (!result[uld.str]) result[uld.str] = +num.str;
+        }
+        break;
+      }
+    }
+  }
+  return result;
+}
+
+/* ──────────────────────────────
+   CROSS-CHECK LOGIC
+────────────────────────────── */
+function crossCheck(dlsUlds, lpUlds) {
+  const results = {
+    matched: [],     // { uld, dlsWt, lpWt, wtOk }
+    dlsOnly: [],     // ULDs in DLS but not in LP
+    lpOnly: [],      // ULDs in LP but not in DLS
+  };
+
+  const dlsKeys = new Set(Object.keys(dlsUlds));
+  const lpKeys  = new Set(Object.keys(lpUlds));
+
+  for (const uld of dlsKeys) {
+    if (lpKeys.has(uld)) {
+      const dlsWt = dlsUlds[uld];
+      const lpWt  = lpUlds[uld];
+      results.matched.push({ uld, dlsWt, lpWt, wtOk: dlsWt === lpWt, delta: lpWt - dlsWt });
+    } else {
+      results.dlsOnly.push({ uld, dlsWt: dlsUlds[uld] });
+    }
+  }
+
+  for (const uld of lpKeys) {
+    if (!dlsKeys.has(uld)) {
+      results.lpOnly.push({ uld, lpWt: lpUlds[uld] });
+    }
+  }
+
+  return results;
+}
+
+/* ──────────────────────────────
+   RESET
+────────────────────────────── */
+function resetAll() {
+  dlsFile = null;
+  lpFile  = null;
+  lastResults = null;
+
+  // Reset drop zones
+  ['dls','lp'].forEach(type => {
+    const zone = document.getElementById('zone-' + type);
+    const fn   = document.getElementById('fn-' + type);
+    zone.classList.remove('ready');
+    fn.textContent = '';
+    // Reset file inputs
+    const input = zone.querySelector('input[type="file"]');
+    if (input) input.value = '';
+  });
+
+  document.getElementById('btn-run').disabled = true;
+  document.getElementById('results').innerHTML = '';
+}
+
+/* ──────────────────────────────
+   RENDER RESULTS
+────────────────────────────── */
+let lastResults = null;
+let activeFilter = 'all';
+
+function runCheck() {
+  const el = document.getElementById('results');
+  el.innerHTML = '<div class="spinner"></div>';
+  document.getElementById('btn-run').disabled = true;
+
+  Promise.all([parseDLS(dlsFile), parseLP(lpFile)])
+    .then(([dls, lp]) => {
+      lastResults = crossCheck(dls, lp);
+      activeFilter = 'all';
+      renderResults(lastResults);
+      document.getElementById('btn-run').disabled = false;
+    })
+    .catch(err => {
+      showToast('Error parsing files: ' + err.message);
+      document.getElementById('results').innerHTML = '';
+      document.getElementById('btn-run').disabled = false;
+    });
+}
+
+function renderResults(r) {
+  const totalErr = r.matched.filter(m => !m.wtOk).length + r.dlsOnly.length + r.lpOnly.length;
+  const totalOk  = r.matched.filter(m => m.wtOk).length;
+  const total    = r.matched.length + r.dlsOnly.length + r.lpOnly.length;
+
+  let html = `
+    <div class="summary-grid">
+      <div class="stat-card"><div class="label">Total ULDs checked</div><div class="value">${total}</div></div>
+      <div class="stat-card ok"><div class="label">✓ Fully OK</div><div class="value">${totalOk}</div></div>
+      <div class="stat-card err"><div class="label">✗ Discrepancies</div><div class="value">${totalErr}</div></div>
+      <div class="stat-card warn"><div class="label">⚠ Weight mismatches</div><div class="value">${r.matched.filter(m=>!m.wtOk).length}</div></div>
+    </div>
+
+    <div class="filter-export">
+      <div class="filter-bar" style="margin-bottom:0; flex:1;">
+        <span>Filter:</span>
+        <button class="filter-btn ${activeFilter==='all'?'active':''}" onclick="setFilter('all')">All</button>
+        <button class="filter-btn ${activeFilter==='err'?'active':''}" onclick="setFilter('err')">Discrepancies only</button>
+        <button class="filter-btn ${activeFilter==='ok'?'active':''}"  onclick="setFilter('ok')">OK only</button>
+        <button class="filter-btn ${activeFilter==='dls'?'active':''}" onclick="setFilter('dls')">DLS only</button>
+        <button class="filter-btn ${activeFilter==='lp'?'active':''}"  onclick="setFilter('lp')">LP only</button>
+      </div>
+      <button id="btn-export" onclick="exportCSV()" style="display:inline-block;">⬇ Export CSV</button>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>ULD Number</th>
+            <th style="text-align:right;">Weight DLS (kg)</th>
+            <th style="text-align:right;">Weight LP (kg)</th>
+            <th style="text-align:right;">Δ kg</th>
+            <th>Status</th>
+            <th>Source</th>
+          </tr>
+        </thead>
+        <tbody id="result-tbody">
+        </tbody>
+      </table>
+    </div>`;
+
+  document.getElementById('results').innerHTML = html;
+  renderTableBody();
+}
+
+function setFilter(f) {
+  activeFilter = f;
+  document.querySelectorAll('.filter-btn').forEach(b => {
+    b.classList.toggle('active', b.textContent.toLowerCase().includes(
+      f==='all'?'all':f==='err'?'disc':f==='ok'?'ok':f==='dls'?'dls':'lp only'
+    ));
+  });
+  // Simpler: re-render
+  renderResults(lastResults);
+}
+
+function renderTableBody() {
+  const tbody = document.getElementById('result-tbody');
+  if (!tbody) return;
+  let rows = '';
+  const r = lastResults;
+
+  function addSection(label) {
+    rows += `<tr class="section-row"><td colspan="6">${label}</td></tr>`;
+  }
+
+  // Matched
+  const matched = r.matched.filter(m => {
+    if (activeFilter === 'err') return !m.wtOk;
+    if (activeFilter === 'ok')  return m.wtOk;
+    if (activeFilter === 'dls' || activeFilter === 'lp') return false;
+    return true;
+  });
+
+  if (matched.length && activeFilter !== 'dls' && activeFilter !== 'lp') {
+    if (activeFilter === 'all' || activeFilter === 'err') addSection('Matched ULDs — weight comparison');
+    matched.forEach(m => {
+      const cls = m.wtOk ? '' : 'row-err';
+      const badge = m.wtOk
+        ? '<span class="badge badge-ok">✓ OK</span>'
+        : '<span class="badge badge-err">✗ Weight mismatch</span>';
+      const deltaStr = m.delta === 0 ? '—' : (m.delta > 0 ? '+' + m.delta : String(m.delta));
+      const deltaCls = m.delta === 0 ? '' : m.delta > 0 ? 'delta-pos' : 'delta-neg';
+      rows += `<tr class="${cls}">
+        <td class="mono">${m.uld}</td>
+        <td style="text-align:right;">${m.dlsWt}</td>
+        <td style="text-align:right;${!m.wtOk?' color:var(--err);font-weight:600;':''}">${m.lpWt}</td>
+        <td style="text-align:right;" class="${deltaCls}">${deltaStr}</td>
+        <td>${badge}</td>
+        <td style="color:var(--muted);font-size:12px;">DLS + LP</td>
+      </tr>`;
+    });
+  }
+
+  // DLS only
+  const dlsOnly = r.dlsOnly.filter(() => activeFilter === 'all' || activeFilter === 'err' || activeFilter === 'dls');
+  if (dlsOnly.length) {
+    addSection('In DLS — not found in LP');
+    dlsOnly.forEach(d => {
+      rows += `<tr class="row-err">
+        <td class="mono">${d.uld}</td>
+        <td style="text-align:right;">${d.dlsWt}</td>
+        <td style="text-align:right;" class="cell-muted">—</td>
+        <td style="text-align:right;" class="cell-muted">—</td>
+        <td><span class="badge badge-err">✗ Missing in LP</span></td>
+        <td style="color:var(--muted);font-size:12px;">DLS only</td>
+      </tr>`;
+    });
+  }
+
+  // LP only
+  const lpOnly = r.lpOnly.filter(() => activeFilter === 'all' || activeFilter === 'err' || activeFilter === 'lp');
+  if (lpOnly.length) {
+    addSection('In LP — not found in DLS');
+    lpOnly.forEach(d => {
+      rows += `<tr class="row-warn">
+        <td class="mono">${d.uld}</td>
+        <td style="text-align:right;" class="cell-muted">—</td>
+        <td style="text-align:right;">${d.lpWt}</td>
+        <td style="text-align:right;" class="cell-muted">—</td>
+        <td><span class="badge badge-warn">⚠ Not in DLS</span></td>
+        <td style="color:var(--muted);font-size:12px;">LP only</td>
+      </tr>`;
+    });
+  }
+
+  if (!rows.replace(/<tr class="section-row">.*?<\/tr>/gs,'').trim()) {
+    rows = `<tr><td colspan="6" style="text-align:center;padding:2rem;color:var(--muted);">No results match this filter.</td></tr>`;
+  }
+
+  tbody.innerHTML = rows;
+}
+
+/* ──────────────────────────────
+   EXPORT CSV
+────────────────────────────── */
+function exportCSV() {
+  if (!lastResults) return;
+  const r = lastResults;
+  const lines = [['ULD Number','Weight DLS (kg)','Weight LP (kg)','Delta (kg)','Status','Source']];
+  r.matched.forEach(m => lines.push([m.uld, m.dlsWt, m.lpWt, m.delta, m.wtOk?'OK':'Weight mismatch','DLS + LP']));
+  r.dlsOnly.forEach(d => lines.push([d.uld, d.dlsWt, '', '', 'Missing in LP','DLS only']));
+  r.lpOnly.forEach(d => lines.push([d.uld, '', d.lpWt, '', 'Not in DLS','LP only']));
+  const csv = lines.map(l => l.join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'dls-lp-check-' + new Date().toISOString().slice(0,10) + '.csv';
+  a.click();
+}
+
+/* ──────────────────────────────
+   TOAST
+────────────────────────────── */
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 4000);
+}
+
+/* ──────────────────────────────
+   SERVICE WORKER (PWA)
+────────────────────────────── */
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+</script>
+</body>
+</html>
