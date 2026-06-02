@@ -469,8 +469,8 @@ pdfjsLib.GlobalWorkerOptions.workerSrc =
 /* ──────────────────────────────
    PASSWORD
 ────────────────────────────── */
-const PW_HASH = '5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8'; // = "password" sha256
-// Change this hash to protect your tool. Generate at: https://emn178.github.io/online-tools/sha256.html
+const PW_HASH = '2f9d6976a1a81e316088e99bb0afe861cb2a9db59bf1bdc340484f04e6bcfeab';
+// Generate at: https://emn178.github.io/online-tools/sha256.html
 
 async function sha256(str) {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
